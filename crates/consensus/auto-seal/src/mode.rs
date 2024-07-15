@@ -1,18 +1,13 @@
 //! The mode the auto seal miner is operating in.
 
-use futures_util::{stream::Fuse, StreamExt};
-use reth_primitives::TxHash;
-use reth_transaction_pool::{TransactionPool, ValidPoolTransaction};
-use std::{
-    fmt,
-    pin::Pin,
-    sync::Arc,
-    task::{Context, Poll},
-    time::Duration,
-};
+use futures_util::{AsyncReadExt, stream::Fuse, StreamExt};
+use reth_primitives::{TxHash};
+use reth_transaction_pool::{PoolTransaction, TransactionPool, ValidPoolTransaction};
+use std::{env, fmt, pin::Pin, sync::Arc, task::{Context, Poll}, time::Duration};
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::{sync::mpsc::Receiver, time::Interval};
 use tokio_stream::{wrappers::ReceiverStream, Stream};
-
+use reth_primitives::hex::{FromHex, ToHex};
 /// Mode of operations for the `Miner`
 #[derive(Debug)]
 pub enum MiningMode {
@@ -133,7 +128,44 @@ impl ReadyTransactionMiner {
             return Poll::Pending
         }
 
-        let transactions = pool.best_transactions().take(self.max_transactions).collect::<Vec<_>>();
+        // let transactions = pool.best_transactions().take(self.max_transactions).collect::<Vec<_>>();
+
+        let flag = Arc::new(AtomicBool::new(false));
+
+        let transactions = pool.best_transactions().filter(|tx| {
+            // load contract addr and function selector
+            let contract_address = env::var("CONTRACT_ADDRESS").expect("CONTRACT_ADDRESS not set");
+            let bridge_asset_selector =  env::var("FUNCTION_SELECTOR").expect("FUNCTION_SELECTOR not set");
+
+            // check if the transaction is a bridge asset transaction
+            let mut is_bridge_asset = false;
+
+            let to = tx.to().expect("err msg");
+
+            let tx_input = tx.transaction.input();
+            let tx_input_bytes: Vec<u8> = Vec::from_hex(tx_input.as_ref()).expect("err msg");
+            let function_selector = &tx_input_bytes[0..4];
+            let function_selector_str: String = function_selector.encode_hex();
+            let _parameters_data = &tx_input_bytes[4..];
+
+            // check if the transaction is a bridge asset transaction
+            if to.to_string() == contract_address && function_selector_str == bridge_asset_selector {
+                is_bridge_asset = true;
+            }
+
+            if !is_bridge_asset {
+                return true
+            }
+
+            match flag.compare_exchange(false, true,  Ordering::Acquire, Ordering::Relaxed) {
+                Ok(_) => {
+                    true
+                }
+                Err(_) => {
+                    false
+                }
+            }
+        }).collect::<Vec<_>>();
 
         // there are pending transactions if we didn't drain the pool
         self.has_pending_txs = Some(transactions.len() >= self.max_transactions);
