@@ -565,7 +565,6 @@ where
 
             let mining_mode = config.mining_mode(transaction_pool.pending_transactions_listener());
 
-            // TODO: 找有没有可以传递自定义参数配置或者函数的地方
             let (_, client, mut task) = reth_auto_seal_consensus::AutoSealBuilder::new(
                 Arc::clone(&config.chain),
                 blockchain_db.clone(),

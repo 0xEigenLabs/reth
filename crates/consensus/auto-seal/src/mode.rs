@@ -8,6 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::{sync::mpsc::Receiver, time::Interval};
 use tokio_stream::{wrappers::ReceiverStream, Stream};
 use reth_primitives::hex::{FromHex, ToHex};
+use tracing::*;
 /// Mode of operations for the `Miner`
 #[derive(Debug)]
 pub enum MiningMode {
@@ -133,20 +134,27 @@ impl ReadyTransactionMiner {
         let flag = Arc::new(AtomicBool::new(false));
 
         let transactions = pool.best_transactions().filter(|tx| {
+            
+            info!(target: "consensus::auto-seal::miner::pool-tx-filter","tx info: {:?}", tx);
             // load contract addr and function selector
-            let contract_address = env::var("CONTRACT_ADDRESS").expect("CONTRACT_ADDRESS not set");
-            let bridge_asset_selector =  env::var("FUNCTION_SELECTOR").expect("FUNCTION_SELECTOR not set");
+            let contract_address = env::var("BRIDGE_CONTRACT_ADDRESS").unwrap_or("0x".to_string());
+            let bridge_asset_selector =  env::var("BRIDGE_ASSET_FUNCTION_SELECTOR").unwrap_or("0x".to_string());
 
             // check if the transaction is a bridge asset transaction
             let mut is_bridge_asset = false;
 
-            let to = tx.to().expect("err msg");
+            let to = match tx.to(){
+                Some(to) => to,
+                None => return true
+            };
+            info!(target: "consensus::auto-seal::miner::pool-tx-filter","tx to: {:?}", to);
 
             let tx_input = tx.transaction.input();
             let tx_input_bytes: Vec<u8> = Vec::from_hex(tx_input.as_ref()).expect("err msg");
             let function_selector = &tx_input_bytes[0..4];
             let function_selector_str: String = function_selector.encode_hex();
             let _parameters_data = &tx_input_bytes[4..];
+            info!(target: "consensus::auto-seal::miner::pool-tx-filter","tx function selector: {:?}", function_selector_str);
 
             // check if the transaction is a bridge asset transaction
             if to.to_string() == contract_address && function_selector_str == bridge_asset_selector {
