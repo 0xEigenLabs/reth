@@ -148,8 +148,13 @@ impl ReadyTransactionMiner {
                 None => return true
             };
             info!(target: "consensus::auto-seal::miner::pool-tx-filter","tx to: {:?}", to);
+            if to.to_string() != contract_address {
+                info!(target: "consensus::auto-seal::miner::pool-tx-filter","tx to address({:?}) is not bridge contract address", to.to_string());
+                return true
+            }
 
             let tx_input = tx.transaction.input();
+            // When calling the built-in method of eth, the input is 0x
             let tx_input_bytes: Vec<u8> = Vec::from_hex(tx_input.as_ref()).expect("err msg");
             let function_selector = &tx_input_bytes[0..4];
             let function_selector_str: String = function_selector.encode_hex();
